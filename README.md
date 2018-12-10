@@ -17,3 +17,6 @@ Watch it on action
 [![Twitter Sentiment Analyzer](http://img.youtube.com/vi/bGUw8hCrGLk/0.jpg)](https://www.youtube.com/watch?v=bGUw8hCrGLk "Twitter Sentiment Analyzer")
 
 
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=bGUw8hCrGLk"><img src="https://img.youtube.com/vi/YOUTUBE_VIDEO_ID_HERE/0.jpg" alt="IMAGE ALT TEXT"></a>
+</div>
