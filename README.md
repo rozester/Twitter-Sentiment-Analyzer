@@ -13,4 +13,6 @@ Steps to start this project:-
 Enjoy Twitter Sentiment Analysis ;-)
 
 Watch it on action
-https://www.youtube.com/watch?v=bGUw8hCrGLk
+[![IMAGE ALT TEXT](http://img.youtube.com/vi/bGUw8hCrGLk/0.jpg)](https://www.youtube.com/watch?v=bGUw8hCrGLk "Twitter Sentiment Analyzer")
+
+
