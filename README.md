@@ -11,3 +11,6 @@ Steps to start this project:-
 2- Add your Twitter API keys to secrets.py
 
 Enjoy Twitter Sentiment Analysis ;-)
+
+Watch it on action
+https://www.youtube.com/watch?v=bGUw8hCrGLk
