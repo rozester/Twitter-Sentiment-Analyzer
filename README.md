@@ -6,9 +6,12 @@ Steps to start this project:-
 1- Create your own MongoDB with these tables:-
 <img src="MongoDB-Config.png" />
 
-3- Start MongoDB server.
+2- Start MongoDB server.
 
-2- Add your Twitter API keys to secrets.py
+3- Add your Twitter API keys to secrets.py
+
+4- Search for new profiles and add them to MongoDB
+<img src="AddToMongoDB.png" />
 
 Enjoy Twitter Sentiment Analysis ;-)
 
