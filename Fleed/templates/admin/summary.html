@@ -1,0 +1,35 @@
+{% extends "admin/layout.html" %}
+
+{% block content %}
+
+<h1>Summary of Twitter API rate_limit_status</h1>
+<br />
+<span>Last update: {{ lastupdate }}</span>
+<br /><br />
+<form action="{{ url_for('summary', _method='POST') }}" method="post">
+    <button id="refresh_summary" type="submit" class="btn btn-primary btn-sm">Refresh</button>
+</form>
+<br /><br />
+<table class="table table-hover">
+    <thead>
+        <tr>
+            <th scope="col">#</th>
+            <th scope="col">Url</th>
+            <th scope="col">Limit</th>
+            <th scope="col">Remaining</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for dict_item in rate_limit_status %}
+        <tr {% if dict_item.remaining == 0 %} class="table-danger" {% elif dict_item.remaining < dict_item.limit %} class="table-warning" {% endif %}>
+            <td>{{ loop.index }}</td>
+            <td>{{ dict_item.url }}</td>
+            <td>{{ dict_item.limit }}</td>
+            <td>{{ dict_item.remaining }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% endblock %}
+

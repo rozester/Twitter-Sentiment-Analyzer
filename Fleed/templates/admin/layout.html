@@ -1,0 +1,66 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <link rel="icon" href="../favicon.ico">
+    <title>Twitter Sentiment Analyzer - Admin</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='content/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='content/dashboard.css') }}">
+    
+    <script src="{{ url_for('static', filename='scripts/jquery-3.2.1.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='scripts/tether.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='scripts/bootstrap.min.js') }}"></script>
+    <script>
+        $(document).ready(function () {
+            $(".menu-selection").removeClass("active");
+            if (window.location.href.endsWith("admin"))
+                $("#overview").addClass("active");
+            else if (window.location.href.endsWith("admin/summary"))
+                $("#summary").addClass("active");
+        });
+    </script>
+</head>
+
+<body>
+    <nav class="navbar navbar-toggleable-md navbar-inverse bg-inverse fixed-top">
+        <button class="navbar-toggler navbar-toggler-right" type="button" data-toggle="collapse" data-target="#navbarsExampleDefault" aria-controls="navbarsExampleDefault" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <a class="navbar-brand" href="{{ url_for('home') }}">Home</a>
+
+        <div class="collapse navbar-collapse" id="navbarsExampleDefault">
+            <ul class="navbar-nav mr-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('admin') }}">Admin</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-sm-3 col-md-2 hidden-xs-down bg-faded sidebar">
+                <ul class="nav nav-pills flex-column">
+                    <li class="nav-item">
+                        <a id="overview" class="nav-link menu-selection" href="{{ url_for('admin') }}">Overview</a>
+                    </li>
+                    <li class="nav-item">
+                        <a id="summary" class="nav-link menu-selection" href="{{ url_for('summary') }}">Summary</a>
+                    </li>
+                </ul>
+            </nav>
+
+            <main class="col-sm-9 offset-sm-3 col-md-10 offset-md-2 pt-3">
+                {% block content %}{% endblock %}
+                <hr />
+                <footer>
+                    <p>&copy; {{ year }} - Twitter Sentiment Analyzer - Admin</p>
+                </footer>
+            </main>
+        </div>
+    </div>
+</body>
+</html>

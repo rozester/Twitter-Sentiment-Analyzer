@@ -1,0 +1,177 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<script type="text/javascript">
+    $(document).ready(function () {
+        var classifications = {{ classifications | safe }}
+        var accounts = {{ accounts | safe }}
+
+        $('#classification_types').select2({
+            placeholder: "Select classification type",
+            data: classifications
+        });
+
+        var formatData = (data) => {
+            if (!data.id) { return data.text; }
+            var $result = $(
+                '<span><img style="width: 40px; height: 40px; background-color: white; border-radius: 50%; padding: 3px;" src="' + data.profile_image_url + '"/> ' + data.text + '</span>'
+            );
+            return $result;
+        }
+
+        $('#profile_select').select2({
+            placeholder: "Select a profile(s)",
+            data: accounts,
+            templateResult: formatData,
+            templateSelection: formatData
+        });
+
+        $('#classification_types').val('').trigger('change');
+
+        $('#classification_types').on('select2:select', (e) => {
+            var data = e.params.data;
+
+            $.ajax({
+                type: "GET",
+                url: '/get_profiles_of_classification?classification=' + data.id,
+                success: (data, status, xhr) => {
+                    if (data.results.profiles != null && data.results.profiles != undefined) {
+                        $("#tbl_profiles > tbody").empty();
+                        var html = '';
+                        for (i = 0; i < data.results.profiles.length; i++) {
+                            html += '<tr id="tr_prf-' + data.results.profiles[i].id + '">';
+                            html += '<td>' + (i + 1) + '</td>';
+                            html += '<td><img style="width: 40px; height: 40px; background-color: white; border-radius: 50%; padding: 3px;" src="' + data.results.profiles[i].profile_image_url + '" /> ' + data.results.profiles[i].text + '</td>';
+                            html += '<td><a id="prf-' + data.results.profiles[i].id + '" class="btn_delete_profiles" href="#"><i class="fas fa-times" style="color: red;"></i></a></td>';
+                            html += '</tr>';
+                        }
+                        $('#tbl_profiles > tbody').append(html);
+                        $('#profile_select').val('').trigger('change');
+
+                        $(".btn_delete_profiles").click((e) => {
+                            delete_profiles(e);
+                        });
+                    }
+                },
+                error: (xhr, status, error) => {
+                    console.log(Date() + " Add profiles to classification Error: " + error);
+                    alert(error);
+                }
+            });
+        });
+
+        $("#save_profile_classifications").click(() => {
+            if ($('#classification_types').select2('data')[0] == undefined)
+                return;
+
+            var data = {
+                'classification_types': $('#classification_types').select2('data')[0].id,
+                'profiles': $("#profile_select").select2('data').map((o) => {
+                    return { id: o.id, text: o.text };
+                })
+            };
+
+            $.ajax({
+                type: "POST",
+                url: '/add_profiles_to_classification',
+                contentType: 'application/json;charset=UTF-8',
+                data: JSON.stringify(data),
+                success: (data, status, xhr) => {
+                    if (data.results.profiles != null && data.results.profiles != undefined) {
+                        $("#tbl_profiles > tbody").empty();
+                        var html = '';
+                        for (i = 0; i < data.results.profiles.length; i++) {
+                            html += '<tr id="tr_prf-' + data.results.profiles[i].id + '">';
+                            html += '<td>' + (i + 1) + '</td>';
+                            html += '<td><img style="width: 40px; height: 40px; background-color: white; border-radius: 50%; padding: 3px;" src="' + data.results.profiles[i].profile_image_url + '" /> ' + data.results.profiles[i].text + '</td>';
+                            html += '<td><a id="prf-' + data.results.profiles[i].id + '" class="btn_delete_profiles" href="#"><i class="fas fa-times" style="color: red;"></i></a></td>';
+                            html += '</tr>';
+                        }
+                        $('#tbl_profiles > tbody').append(html);
+                        $('#profile_select').val('').trigger('change');
+
+                        $(".btn_delete_profiles").click((e) => {
+                            delete_profiles(e);
+                        });
+                    }
+                },
+                error: (xhr, status, error) => {
+                    console.log(Date() + " Add profiles to classification Error: " + error);
+                    alert(error);
+                }
+            });
+        });
+
+        delete_profiles = (e) => {
+            e.preventDefault();
+
+            var itemId = $(e.currentTarget).attr('id').split('-')[1];
+
+            if (!confirm("Are you sure ?"))
+                return;
+
+            $.ajax({
+                type: "GET",
+                url: '/delete_profile_from_classification?classification=' + $('#classification_types').select2('data')[0].id + '&user_id=' + itemId,
+                success: (data, status, xhr) => {
+                    Notification.requestPermission().then((result) => {
+                        var n = new Notification(data.message);
+                        setTimeout(n.close.bind(n), 5000);
+                    });
+                    $("#tr_prf-" + itemId).fadeOut(500, () => { $(this).remove(); });
+                },
+                error: (xhr, status, error) => {
+                    console.log(Date() + " Delete profile classification Error: " + error);
+                    alert(error);
+                }
+            });
+        }
+    });
+</script>
+
+<h1>Profile classifications</h1>
+
+<div class="row justify-content-md-center">
+    <div class="col-sm-6">
+        <div class="form-group">
+            <label>Profile classification types: </label>
+            <select id="classification_types" class="select2 form-control" style="width: 100%"></select>
+        </div>
+    </div>
+</div>
+<br /><br />
+<div class="row">
+    <div class="col-sm-6">
+        <div class="form-group">
+            <label>Add profile to classification: </label>
+            <select id="profile_select" class="select2 form-control" multiple style="width: 100%"></select>
+        </div>
+    </div>
+</div>
+<div class="row">
+    <div class="col-sm-4">
+        <table id="tbl_profiles" class="table table-hover">
+            <thead>
+                <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Profile name</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+<br /><br />
+<div class="row">
+    <div class="col-sm-6">
+        <div class="form-group">
+            <button id="save_profile_classifications" type="button" class="btn btn-primary">
+                <i class="fas fa-save"></i> Save
+            </button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

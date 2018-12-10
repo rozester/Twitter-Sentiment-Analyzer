@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<h1>Last added profiles</h1>
+
+<br />
+
+{% for indexer in range(0, saved_accounts | length) %}
+    {% if indexer % 3 == 0 %}
+        <div class="row justify-content-md-center">
+            {% for account in saved_accounts[indexer: indexer + 3] %}
+            <div class="col-sm-3">
+                <div style="border: 1px solid rgba(0, 0, 0, 0.125); border-radius: 4px; height: 350px;">
+                    {% if account.profile_banner_url != null %}
+                        <img style="width: 100%; height: 90px; background-color: #{{ account.profile_link_color }}" src="{{ account.profile_banner_url + "/1500x500" }}" />
+                    {% else %}
+                        <div style="width: 100%; height: 90px; background-color: #{{ account.profile_link_color }}"></div>
+                    {% endif %}
+                    <img style="position: relative; top: -30px; left: 15px; width: 76px; height: 76px; background-color: white; border-radius: 50%; padding: 3px;" src="{{ account.profile_image_url | replace("_normal", "_400x400") }}" />
+                    <div style="position: relative; top: -40px; padding-top: 18px; padding-right: 18px; padding-left: 18px;">
+                        <h5><a target="_blank" href="https://www.twitter.com/{{ account.screen_name }}" title="{{ account.name }}"><b>{{ account.name | truncate(20) }}</b></a> {% if account.verified %} <img style="width: 15px;" src="{{ url_for('static', filename='images/verified.png') }}" /> {% endif %} {% if account.protected %} <img style="width: 15px;" src="{{ url_for('static', filename='images/protected.png') }}" /> {% endif %}</h5>
+                        <p style="height: 110px;">{{ account.description }}</p>
+                        <div title="{{ "{:,.2f}".format(account.downloaded) }}% Tweets Downloaded" class="progress" style="position: relative; top: -10px; height: 4px;">
+                            <div class="progress-bar bg-success" role="progressbar" style="width: {{ account.downloaded }}%" aria-valuenow="{{ account.downloaded }}" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                        <a title="Analyze" href="/profile_viewer?screen_name={{ account.screen_name }}" class="btn btn-primary"><i class="fas fa-chart-bar fa-lg"></i></a>
+                        <table style="font-size: 12px; position: relative; top: -40px; left: 70px;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align: center;"><i title="tweets" class="fab fa-twitter"></i></th>
+                                    <th style="text-align: center;"><i title="following" class="fas fa-arrow-up"></i></th>
+                                    <th style="text-align: center;"><i title="followers" class="fas fa-arrow-down"></i></th>
+                                    <th style="text-align: center;"><i title="likes" class="far fa-heart"></i></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td style="text-align: center; width:40px; padding-right: 7px;">{{ "{:,.0f}".format(account.statuses_count) }}</td>
+                                    <td style="text-align: center; width:40px; padding-right: 7px;">{{ "{:,.0f}".format(account.friends_count) }}</td>
+                                    <td style="text-align: center; width:40px; padding-right: 7px;">{{ "{:,.0f}".format(account.followers_count) }}</td>
+                                    <td style="text-align: center; width:40px;">{{ "{:,.0f}".format(account.favourites_count) }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <br />
+    {% endif %}
+{% endfor %}
+
+{% endblock %}
+

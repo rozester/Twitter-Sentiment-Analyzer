@@ -1,0 +1,68 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<style>
+    .circle-shape {
+        padding: 20px;
+        font-size: 100px;
+        width: 120px !important;
+        height: 120px;
+        text-align: center;
+        text-decoration: none;
+        border-radius: 50%;
+    }
+
+    .fa-twitter {
+        background: #55ACEE;
+        color: white;
+    }
+
+        .fa-twitter:hover {
+            background: #55ACEE;
+            color: white;
+            text-decoration: none;
+        }
+
+    .fa-linkedin-in {
+        background: #007bb5;
+        color: white;
+    }
+
+        .fa-linkedin-in:hover {
+            background: #007bb5;
+            color: white;
+            text-decoration: none;
+        }
+
+    .fa-github {
+        background: #444444;
+        color: white;
+    }
+
+        .fa-github:hover {
+            background: #444444;
+            color: white;
+            text-decoration: none;
+        }
+</style>
+
+<div class="row justify-content-md-center" style="margin-top: 50px; margin-bottom: 400px">
+    <div class="col-md-3">
+        <a target="_blank" href="https://twitter.com/amr_salama3">
+            <i class="fab fa-twitter circle-shape"></i>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a target="_blank" href="https://www.linkedin.com/in/amr-salama2/">
+            <i class="fab fa-linkedin-in circle-shape"></i>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a target="_blank" href="https://github.com/rozester">
+            <i class="fab fa-github circle-shape"></i>
+        </a>
+    </div>
+</div>
+
+{% endblock %}

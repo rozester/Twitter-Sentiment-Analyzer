@@ -1,0 +1,1328 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<style>
+    .bar {
+        fill: steelblue;
+    }
+
+    .bar:hover {
+        fill: brown;
+    }
+
+    .axis path,
+    .axis line {
+        fill: none;
+        stroke: #000;
+        shape-rendering: crispEdges;
+    }
+
+    .axis--x path {
+        display: none;
+    }
+
+    .d3-tip {
+        line-height: 1;
+        font-weight: bold;
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.8);
+        color: #fff;
+        border-radius: 2px;
+    }
+
+    /* Creates a small triangle extender for the tooltip */
+    .d3-tip:after {
+        box-sizing: border-box;
+        display: inline;
+        font-size: 10px;
+        width: 100%;
+        line-height: 1;
+        color: rgba(0, 0, 0, 0.8);
+        content: "\25BC";
+        position: absolute;
+        text-align: center;
+    }
+
+    /* Style northward tooltips differently */
+    .d3-tip.n:after {
+        margin: -1px 0 0 0;
+        top: 100%;
+        left: 0;
+    }
+</style>
+
+<script type="text/javascript">
+    $(document).ready(function () {
+        var accounts = {{ accounts | safe }}
+        var selected_users = {{ user_data | safe }}
+
+        var formatData = (data) => {
+            if (!data.id) { return data.text; }
+            var $result = $(
+                '<span><img style="width: 40px; height: 40px; background-color: white; border-radius: 50%; padding: 3px;" src="' + data.profile_image_url + '"/> ' + data.text + '</span>'
+            );
+            return $result;
+        }
+
+        $('#profile_select').select2({
+            placeholder: "Select multiple profiles to compare",
+            data: accounts,
+            templateResult: formatData,
+            templateSelection: formatData
+        });
+
+        $('#profile_select').val(selected_users).trigger('change');
+
+        $("#profiles_form").submit((e) => {
+            if ($('#profile_select').val() == "" || $("#profile_select").select2('data').length <= 1) {
+                alert('Please select more than one profiles');
+                return false;
+            }
+
+            var data = {
+                'profiles': $("#profile_select").select2('data').map((o) => {
+                    return { id: o.id, text: o.text };
+                })
+            };
+
+            $('<input />').attr('type', 'hidden')
+                .attr('name', "user_data")
+                .attr('value', JSON.stringify(data))
+                .appendTo('#profiles_form');
+            return true;
+        });
+    });
+</script>
+
+<h1>Profile compare</h1>
+
+<form id="profiles_form" action="/profile_compare" method="post">
+    <div class="row justify-content-md-center">
+        <div class="col-sm-6">
+            <div class="form-group">
+                <label>Select profiles: </label>
+                <select id="profile_select" class="select2 form-control" multiple style="width: 100%"></select>
+            </div>
+        </div>
+        <div class="col-sm-2" style="padding-top: 28px;">
+            <button id="compare_profiles" type="submit" class="btn btn-primary">
+                <i class="fas fa-puzzle-piece"></i> Compare
+            </button>
+        </div>
+    </div>
+</form>
+<br /><br />
+<ul class="nav nav-tabs" role="tablist">
+    <li class="nav-item">
+        <a class="nav-link active" data-toggle="tab" href="#general_panel" role="tab">General</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-toggle="tab" href="#lang_panel" role="tab">Language Comparison</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-toggle="tab" href="#hashtags_panel" role="tab">Hashtags Comparison</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-toggle="tab" href="#emoji_panel" role="tab">Emoji Comparison</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-toggle="tab" href="#length_panel" role="tab">Length Comparison</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-toggle="tab" href="#distribution_panel" role="tab">Tweets Distribution</a>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane active" id="general_panel" role="tabpanel">
+        <script src="{{ url_for('static', filename='scripts/d3.v4.min.js') }}"></script>
+        <script src="{{ url_for('static', filename='scripts/d3-tip.js') }}"></script>
+
+        <br />
+        <div class="row">
+            <div class="col-sm-6">
+                <svg id="compare_tweets"></svg>
+            </div>
+            <div class="col-sm-6">
+                <svg id="compare_followers"></svg>
+            </div>
+        </div>
+        <br /><br />
+        <div class="row">
+            <div class="col-sm-6">
+                <svg id="compare_following"></svg>
+            </div>
+            <div class="col-sm-6">
+                <svg id="compare_likes"></svg>
+            </div>
+        </div>
+
+        <script>
+            var margin = { top: 30, right: 20, bottom: 50, left: 70 },
+                width = 610 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            // Tweets
+            var x_compare_tweets = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                y_compare_tweets = d3.scaleLinear().rangeRound([height, 0]);
+
+            var tip_compare_tweets = d3.tip()
+                .attr('class', 'd3-tip')
+                .offset([-10, 0])
+                .html(function (d) {
+                    return "<strong>Tweets:</strong> <span style='color:red'>" + d.statuses_count.toLocaleString() + "</span>";
+                })
+
+            var svg_compare_tweets = d3.select("#compare_tweets")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .call(tip_compare_tweets);
+
+            var g_compare_tweets = svg_compare_tweets.append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            g_compare_tweets.append("text")
+                .attr("x", (width / 2))
+                .attr("y", 0 - (margin.top / 2))
+                .attr("text-anchor", "middle")
+                .style("font-size", "14px")
+                .style("text-decoration", "underline")
+                .text("Compare Tweets");
+
+            var compare_tweets = {{ compare_tweets | safe }}
+
+            x_compare_tweets.domain(compare_tweets.map(function (d) { return d.name; }));
+            y_compare_tweets.domain([0, d3.max(compare_tweets, function (d) { return d.statuses_count; })]);
+
+            g_compare_tweets.append("g")
+                .attr("class", "axis axis--x")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x_compare_tweets))
+                .selectAll("text")
+                .style("font-weight", "bold")
+                .attr("x", -10)
+                .attr("transform", "rotate(-20)");
+
+            g_compare_tweets.append("g")
+                .attr("class", "axis axis--y")
+                .call(d3.axisLeft(y_compare_tweets).ticks(10))
+                .append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 6)
+                .attr("dy", "0.71em")
+                .attr("text-anchor", "end")
+                .text("Tweets");
+
+            g_compare_tweets.selectAll(".bar")
+                .data(compare_tweets)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", function (d) { return x_compare_tweets(d.name); })
+                .attr("y", function (d) { return y_compare_tweets(d.statuses_count); })
+                .attr("width", x_compare_tweets.bandwidth())
+                .attr("height", function (d) { return height - y_compare_tweets(d.statuses_count); })
+                .on('mouseover', tip_compare_tweets.show)
+                .on('mouseout', tip_compare_tweets.hide);
+
+            // Followers
+            var x_compare_followers = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                y_compare_followers = d3.scaleLinear().rangeRound([height, 0]);
+
+            var tip_compare_followers = d3.tip()
+                .attr('class', 'd3-tip')
+                .offset([-10, 0])
+                .html(function (d) {
+                    return "<strong>Followers:</strong> <span style='color:red'>" + d.followers_count.toLocaleString() + "</span>";
+                })
+
+            var svg_compare_followers = d3.select("#compare_followers")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .call(tip_compare_followers);
+
+            var g_compare_followers = svg_compare_followers.append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            g_compare_followers.append("text")
+                .attr("x", (width / 2))
+                .attr("y", 0 - (margin.top / 2))
+                .attr("text-anchor", "middle")
+                .style("font-size", "14px")
+                .style("text-decoration", "underline")
+                .text("Compare Followers");
+
+            var compare_followers = {{ compare_followers | safe }}
+
+            x_compare_followers.domain(compare_followers.map(function (d) { return d.name; }));
+            y_compare_followers.domain([0, d3.max(compare_followers, function (d) { return d.followers_count; })]);
+
+            g_compare_followers.append("g")
+                .attr("class", "axis axis--x")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x_compare_followers))
+                .selectAll("text")
+                .style("font-weight", "bold")
+                .attr("x", -10)
+                .attr("transform", "rotate(-20)");
+
+            g_compare_followers.append("g")
+                .attr("class", "axis axis--y")
+                .call(d3.axisLeft(y_compare_followers).ticks(10))
+                .append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 6)
+                .attr("dy", "0.71em")
+                .attr("text-anchor", "end")
+                .text("Followers");
+
+            g_compare_followers.selectAll(".bar")
+                .data(compare_followers)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", function (d) { return x_compare_followers(d.name); })
+                .attr("y", function (d) { return y_compare_followers(d.followers_count); })
+                .attr("width", x_compare_followers.bandwidth())
+                .attr("height", function (d) { return height - y_compare_followers(d.followers_count); })
+                .on('mouseover', tip_compare_followers.show)
+                .on('mouseout', tip_compare_followers.hide);
+
+            // Following
+            var x_compare_following = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                y_compare_following = d3.scaleLinear().rangeRound([height, 0]);
+
+            var tip_compare_following = d3.tip()
+                .attr('class', 'd3-tip')
+                .offset([-10, 0])
+                .html(function (d) {
+                    return "<strong>Following:</strong> <span style='color:red'>" + d.friends_count.toLocaleString() + "</span>";
+                })
+
+            var svg_compare_following = d3.select("#compare_following")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .call(tip_compare_following);
+
+            var g_compare_following = svg_compare_following.append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            g_compare_following.append("text")
+                .attr("x", (width / 2))
+                .attr("y", 0 - (margin.top / 2))
+                .attr("text-anchor", "middle")
+                .style("font-size", "14px")
+                .style("text-decoration", "underline")
+                .text("Compare Following");
+
+            var compare_following = {{ compare_following | safe }}
+
+            x_compare_following.domain(compare_following.map(function (d) { return d.name; }));
+            y_compare_following.domain([0, d3.max(compare_following, function (d) { return d.friends_count; })]);
+
+            g_compare_following.append("g")
+                .attr("class", "axis axis--x")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x_compare_following))
+                .selectAll("text")
+                .style("font-weight", "bold")
+                .attr("x", -10)
+                .attr("transform", "rotate(-20)");
+
+            g_compare_following.append("g")
+                .attr("class", "axis axis--y")
+                .call(d3.axisLeft(y_compare_following).ticks(10))
+                .append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 6)
+                .attr("dy", "0.71em")
+                .attr("text-anchor", "end")
+                .text("Following");
+
+            g_compare_following.selectAll(".bar")
+                .data(compare_following)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", function (d) { return x_compare_following(d.name); })
+                .attr("y", function (d) { return y_compare_following(d.friends_count); })
+                .attr("width", x_compare_following.bandwidth())
+                .attr("height", function (d) { return height - y_compare_following(d.friends_count); })
+                .on('mouseover', tip_compare_following.show)
+                .on('mouseout', tip_compare_following.hide);
+
+            // Likes
+            var x_compare_likes = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                y_compare_likes = d3.scaleLinear().rangeRound([height, 0]);
+
+            var tip_compare_likes = d3.tip()
+                .attr('class', 'd3-tip')
+                .offset([-10, 0])
+                .html(function (d) {
+                    return "<strong>Likes:</strong> <span style='color:red'>" + d.favourites_count.toLocaleString() + "</span>";
+                })
+
+            var svg_compare_likes = d3.select("#compare_likes")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .call(tip_compare_likes);
+
+            var g_compare_likes = svg_compare_likes.append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            g_compare_likes.append("text")
+                .attr("x", (width / 2))
+                .attr("y", 0 - (margin.top / 2))
+                .attr("text-anchor", "middle")
+                .style("font-size", "14px")
+                .style("text-decoration", "underline")
+                .text("Compare Likes");
+
+            var compare_likes = {{ compare_likes | safe }}
+
+            x_compare_likes.domain(compare_likes.map(function (d) { return d.name; }));
+            y_compare_likes.domain([0, d3.max(compare_likes, function (d) { return d.favourites_count; })]);
+
+            g_compare_likes.append("g")
+                .attr("class", "axis axis--x")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x_compare_likes))
+                .selectAll("text")
+                .style("font-weight", "bold")
+                .attr("x", -10)
+                .attr("transform", "rotate(-20)");
+
+            g_compare_likes.append("g")
+                .attr("class", "axis axis--y")
+                .call(d3.axisLeft(y_compare_likes).ticks(10))
+                .append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 6)
+                .attr("dy", "0.71em")
+                .attr("text-anchor", "end")
+                .text("Likes");
+
+            g_compare_likes.selectAll(".bar")
+                .data(compare_likes)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", function (d) { return x_compare_likes(d.name); })
+                .attr("y", function (d) { return y_compare_likes(d.favourites_count); })
+                .attr("width", x_compare_likes.bandwidth())
+                .attr("height", function (d) { return height - y_compare_likes(d.favourites_count); })
+                .on('mouseover', tip_compare_likes.show)
+                .on('mouseout', tip_compare_likes.hide);
+        </script>
+    </div>
+    <div class="tab-pane" id="lang_panel" role="tabpanel">
+        <script src="{{ url_for('static', filename='scripts/d3.v4.min.js') }}"></script>
+        <script src="{{ url_for('static', filename='scripts/d3-tip.js') }}"></script>
+
+        <br />
+        <div class="row">
+            <div class="col-sm-12">
+                <svg id="lang_summary"></svg>
+            </div>
+        </div>
+
+        <script>
+            var data = {{ lang_summary | safe }}
+
+            var margin = { top: 30, right: 20, bottom: 30, left: 40 },
+                width = 1210 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            var x0 = d3.scaleBand()
+                .rangeRound([0, width])
+                .paddingInner(0.1);
+
+            var x1 = d3.scaleBand()
+                .padding(0.05);
+
+            var y = d3.scaleLinear()
+                .rangeRound([height, 0]);
+
+            function get_random_color2() {
+                var names = d3.set(data.map(function (line) { return line.screen_name; })).values();
+                var r = function () { return Math.floor(Math.random() * 256) };
+                var rgba = [];
+                for (let i = 0; i < names.length; i++)
+                {
+                    rgba.push("rgba(" + r() + "," + r() + "," + r() + ", 0.8)");
+                }
+                return rgba;
+            }
+
+            var color = d3.scaleOrdinal()
+                .range(get_random_color2());
+
+            var tip = d3.tip()
+                .attr('class', 'd3-tip')
+                .offset([-10, 0])
+                .html(function (d) {
+                    return "<strong>Tweets:</strong> <span style='color:red'>" + d.count + "</span>";
+                });
+
+            var svg = d3.select("#lang_summary")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            var types = d3.set(data.map(function (line) { return line.screen_name; })).values();
+            x0.domain(data.map(function (d) { return d.name; }));
+            x1.domain(types).rangeRound([0, x0.bandwidth()]);
+            y.domain([0, d3.max(data, function (d) { return d.count; })]);
+
+            svg.call(tip);
+
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x0))
+                .selectAll("text");
+
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(y).ticks(null, "s"));
+
+            svg.selectAll("rect")
+                .data(data)
+                .enter().append("rect")
+                .attr("width", x1.bandwidth())
+                //.attr("width", 20)
+                .attr("x", function (d) { return x0(d.name) + x1(d.screen_name); })
+                .attr("y", function (d) { return y(+d.count); })
+                .attr("height", function (d) { return height - y(+d.count); })
+                .style("fill", function (d) { return color(d.screen_name); })
+                .on('mouseover', tip.show)
+                .on('mouseout', tip.hide);
+
+            var legend = svg.selectAll(".legend")
+                .data(types.slice().reverse())
+                .enter().append("g")
+                .attr("class", "legend")
+                .attr("transform", function (d, i) { return "translate(0," + i * 20 + ")"; });
+
+            legend.append("rect")
+                .attr("x", width - 18)
+                .attr("width", 18)
+                .attr("height", 18)
+                .style("fill", color);
+
+            legend.append("text")
+                .attr("x", width - 24)
+                .attr("y", 9)
+                .attr("dy", ".35em")
+                .style("text-anchor", "end")
+                .text(function (d) { return d; });
+        </script>
+    </div>
+    <div class="tab-pane" id="hashtags_panel" role="tabpanel">
+        <br />
+        <div id="hashtags_summary">
+        </div>
+
+        <script>
+            var margin = { top: 30, right: 10, bottom: 50, left: 40 },
+                width = 1210 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            var hashtags_summary_div = d3.select("#hashtags_summary");
+            {% for item in users_tweets %}
+                var row_hashtags_summary = hashtags_summary_div.insert("div", "#hashtags_summary")
+                    .attr('class', 'row {{ item.screen_name }}');
+                var col_hashtags_summary = row_hashtags_summary.append("div")
+                    .attr('class', 'col-sm-12');
+
+
+                var x_hashtags_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_hashtags_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_hashtags_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Tweets:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_hashtags_summary = col_hashtags_summary.append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_hashtags_summary);
+
+                var g_hashtags_summary = svg_hashtags_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_hashtags_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("{{ item.user_name }} Hashtags Summary");
+
+                var hashtags_summary = {{ item.hashtags_summary | safe }}
+
+                x_hashtags_summary.domain(hashtags_summary.map((d) => { return d.name; }));
+                y_hashtags_summary.domain([0, d3.max(hashtags_summary, (d) => { return d.count; })]);
+
+                g_hashtags_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_hashtags_summary))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_hashtags_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_hashtags_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_hashtags_summary.selectAll(".bar")
+                    .data(hashtags_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_hashtags_summary(d.name); })
+                    .attr("y", (d) => { return y_hashtags_summary(d.count); })
+                    .attr("width", x_hashtags_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_hashtags_summary(d.count); })
+                    .on('mouseover', tip_hashtags_summary.show)
+                    .on('mouseout', tip_hashtags_summary.hide);
+            {% endfor %}
+        </script>
+    </div>
+    <div class="tab-pane" id="emoji_panel" role="tabpanel">
+        <br />
+        <div id="emoji_summary">
+        </div>
+
+        <script>
+            var margin = { top: 30, right: 10, bottom: 50, left: 40 },
+                width = 1210 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            var emoji_summary_div = d3.select("#emoji_summary");
+            {% for item in users_tweets %}
+                var row_emoji_summary = emoji_summary_div.insert("div", "#emoji_summary")
+                    .attr('class', 'row {{ item.screen_name }}');
+                var col_emoji_summary = row_emoji_summary.append("div")
+                    .attr('class', 'col-sm-12');
+
+
+                var x_emoji_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_emoji_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_emoji_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Tweets:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_emoji_summary = col_emoji_summary.append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_emoji_summary);
+
+                var g_emoji_summary = svg_emoji_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_emoji_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("{{ item.user_name }} Emoji Summary");
+
+                var emoji_summary = {{ item.emoji_summary | safe }}
+
+                x_emoji_summary.domain(emoji_summary.map((d) => { return d.name; }));
+                y_emoji_summary.domain([0, d3.max(emoji_summary, (d) => { return d.count; })]);
+
+                g_emoji_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_emoji_summary))
+                    .selectAll("text")
+                    .style("font-size", "20px")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_emoji_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_emoji_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_emoji_summary.selectAll(".bar")
+                    .data(emoji_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_emoji_summary(d.name); })
+                    .attr("y", (d) => { return y_emoji_summary(d.count); })
+                    .attr("width", x_emoji_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_emoji_summary(d.count); })
+                    .on('mouseover', tip_emoji_summary.show)
+                    .on('mouseout', tip_emoji_summary.hide);
+            {% endfor %}
+        </script>
+    </div>
+    <div class="tab-pane" id="length_panel" role="tabpanel">
+        <br />
+        <div class="row">
+            <div class="col-sm-12">
+                <svg id="length_summary"></svg>
+            </div>
+        </div>
+
+        <script>
+            var data = {{ length_summary | safe }}
+
+            var margin = { top: 30, right: 20, bottom: 30, left: 40 },
+                width = 1210 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            var x0 = d3.scaleBand()
+                .rangeRound([0, width])
+                .paddingInner(0.1);
+
+            var x1 = d3.scaleBand()
+                .padding(0.05);
+
+            var y = d3.scaleLinear()
+                .rangeRound([height, 0]);
+
+            function get_random_color2() {
+                var names = d3.set(data.map(function (line) { return line.screen_name; })).values();
+                var r = function () { return Math.floor(Math.random() * 256) };
+                var rgba = [];
+                for (let i = 0; i < names.length; i++)
+                {
+                    rgba.push("rgba(" + r() + "," + r() + "," + r() + ", 0.8)");
+                }
+                return rgba;
+            }
+
+            var color = d3.scaleOrdinal()
+                .range(get_random_color2());
+
+            var tip = d3.tip()
+                .attr('class', 'd3-tip')
+                .offset([-10, 0])
+                .html(function (d) {
+                    return "<strong>Tweets:</strong> <span style='color:red'>" + d.count + "</span>";
+                });
+
+            var svg = d3.select("#length_summary")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            var types = d3.set(data.map(function (line) { return line.screen_name; })).values();
+            x0.domain(data.map(function (d) { return d.name; }));
+            x1.domain(types).rangeRound([0, x0.bandwidth()]);
+            y.domain([0, d3.max(data, function (d) { return d.count; })]);
+
+            svg.call(tip);
+
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x0))
+                .selectAll("text")
+                .style("font-size", "20px");
+
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(y).ticks(null, "s"));
+
+            svg.selectAll("rect")
+                .data(data)
+                .enter().append("rect")
+                .attr("width", x1.bandwidth())
+                //.attr("width", 20)
+                .attr("x", function (d) { return x0(d.name) + x1(d.screen_name); })
+                .attr("y", function (d) { return y(+d.count); })
+                .attr("height", function (d) { return height - y(+d.count); })
+                .style("fill", function (d) { return color(d.screen_name); })
+                .on('mouseover', tip.show)
+                .on('mouseout', tip.hide);
+
+            var legend = svg.selectAll(".legend")
+                .data(types.slice().reverse())
+                .enter().append("g")
+                .attr("class", "legend")
+                .attr("transform", function (d, i) { return "translate(0," + i * 20 + ")"; });
+
+            legend.append("rect")
+                .attr("x", width - 18)
+                .attr("width", 18)
+                .attr("height", 18)
+                .style("fill", color);
+
+            legend.append("text")
+                .attr("x", width - 24)
+                .attr("y", 9)
+                .attr("dy", ".35em")
+                .style("text-anchor", "end")
+                .text(function (d) { return d; });
+        </script>
+    </div>
+    <div class="tab-pane" id="distribution_panel" role="tabpanel">
+        <br />
+        <div class="row">
+            <div class="col-sm-12">
+                <svg id="daily_tweets"></svg>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-sm-12">
+                <svg id="weekly_tweets"></svg>
+            </div>
+        </div>
+
+        <script>
+            var data = {{ daily_tweets | safe }}
+
+            var margin = { top: 30, right: 20, bottom: 30, left: 40 },
+                width = 1210 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            var x0 = d3.scaleBand()
+                .rangeRound([0, width])
+                .paddingInner(0.1);
+
+            var x1 = d3.scaleBand()
+                .padding(0.05);
+
+            var y = d3.scaleLinear()
+                .rangeRound([height, 0]);
+
+            function get_random_color2() {
+                var names = d3.set(data.map(function (line) { return line.screen_name; })).values();
+                var r = function () { return Math.floor(Math.random() * 256) };
+                var rgba = [];
+                for (let i = 0; i < names.length; i++)
+                {
+                    rgba.push("rgba(" + r() + "," + r() + "," + r() + ", 0.8)");
+                }
+                return rgba;
+            }
+
+            var color = d3.scaleOrdinal()
+                .range(get_random_color2());
+
+            var tip = d3.tip()
+                .attr('class', 'd3-tip')
+                .offset([-10, 0])
+                .html(function (d) {
+                    return "<strong>Tweets:</strong> <span style='color:red'>" + d.count + "</span>";
+                });
+
+            var svg = d3.select("#daily_tweets")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            var types = d3.set(data.map(function (line) { return line.screen_name; })).values();
+            x0.domain(data.map(function (d) { return d.name; }));
+            x1.domain(types).rangeRound([0, x0.bandwidth()]);
+            y.domain([0, d3.max(data, function (d) { return d.count; })]);
+
+            svg.call(tip);
+
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x0))
+                .selectAll("text");
+
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(y).ticks(null, "s"));
+
+            svg.selectAll("rect")
+                .data(data)
+                .enter().append("rect")
+                .attr("width", x1.bandwidth())
+                //.attr("width", 20)
+                .attr("x", function (d) { return x0(d.name) + x1(d.screen_name); })
+                .attr("y", function (d) { return y(+d.count); })
+                .attr("height", function (d) { return height - y(+d.count); })
+                .style("fill", function (d) { return color(d.screen_name); })
+                .on('mouseover', tip.show)
+                .on('mouseout', tip.hide);
+
+            var legend = svg.selectAll(".legend")
+                .data(types.slice().reverse())
+                .enter().append("g")
+                .attr("class", "legend")
+                .attr("transform", function (d, i) { return "translate(0," + i * 20 + ")"; });
+
+            legend.append("rect")
+                .attr("x", width - 18)
+                .attr("width", 18)
+                .attr("height", 18)
+                .style("fill", color);
+
+            legend.append("text")
+                .attr("x", width - 24)
+                .attr("y", 9)
+                .attr("dy", ".35em")
+                .style("text-anchor", "end")
+                .text(function (d) { return d; });
+        </script>
+        <script>
+            var data = {{ weekly_tweets | safe }}
+
+            var margin = { top: 30, right: 20, bottom: 30, left: 40 },
+                width = 1210 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            var x0 = d3.scaleBand()
+                .rangeRound([0, width])
+                .paddingInner(0.1);
+
+            var x1 = d3.scaleBand()
+                .padding(0.05);
+
+            var y = d3.scaleLinear()
+                .rangeRound([height, 0]);
+
+            function get_random_color2() {
+                var names = d3.set(data.map(function (line) { return line.screen_name; })).values();
+                var r = function () { return Math.floor(Math.random() * 256) };
+                var rgba = [];
+                for (let i = 0; i < names.length; i++)
+                {
+                    rgba.push("rgba(" + r() + "," + r() + "," + r() + ", 0.8)");
+                }
+                return rgba;
+            }
+
+            var color = d3.scaleOrdinal()
+                .range(get_random_color2());
+
+            var tip = d3.tip()
+                .attr('class', 'd3-tip')
+                .offset([-10, 0])
+                .html(function (d) {
+                    return "<strong>Tweets:</strong> <span style='color:red'>" + d.count + "</span>";
+                });
+
+            var svg = d3.select("#weekly_tweets")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            var types = d3.set(data.map(function (line) { return line.screen_name; })).values();
+            x0.domain(data.map(function (d) { return d.name; }));
+            x1.domain(types).rangeRound([0, x0.bandwidth()]);
+            y.domain([0, d3.max(data, function (d) { return d.count; })]);
+
+            svg.call(tip);
+
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x0))
+                .selectAll("text");
+
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(y).ticks(null, "s"));
+
+            svg.selectAll("rect")
+                .data(data)
+                .enter().append("rect")
+                .attr("width", x1.bandwidth())
+                //.attr("width", 20)
+                .attr("x", function (d) { return x0(d.name) + x1(d.screen_name); })
+                .attr("y", function (d) { return y(+d.count); })
+                .attr("height", function (d) { return height - y(+d.count); })
+                .style("fill", function (d) { return color(d.screen_name); })
+                .on('mouseover', tip.show)
+                .on('mouseout', tip.hide);
+
+            var legend = svg.selectAll(".legend")
+                .data(types.slice().reverse())
+                .enter().append("g")
+                .attr("class", "legend")
+                .attr("transform", function (d, i) { return "translate(0," + i * 20 + ")"; });
+
+            legend.append("rect")
+                .attr("x", width - 18)
+                .attr("width", 18)
+                .attr("height", 18)
+                .style("fill", color);
+
+            legend.append("text")
+                .attr("x", width - 24)
+                .attr("y", 9)
+                .attr("dy", ".35em")
+                .style("text-anchor", "end")
+                .text(function (d) { return d; });
+        </script>
+    </div>
+</div>
+
+<br /><br />
+<hr />
+<br /><br />
+<ul class="nav nav-tabs" role="tablist">
+    <li class="nav-item">
+        <a class="nav-link active" data-toggle="tab" href="#retweets_panel" role="tab">Retweets Comparison</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-toggle="tab" href="#quoted_panel" role="tab">Quoted Comparison</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-toggle="tab" href="#replies_panel" role="tab">Replies Comparison</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-toggle="tab" href="#mentions_panel" role="tab">Mentions Comparison</a>
+    </li>
+</ul>
+<div class="tab-content">
+    <div class="tab-pane active" id="retweets_panel" role="tabpanel">
+        <br />
+        <div id="retweets_summary">
+        </div>
+
+        <script>
+            var margin = { top: 30, right: 10, bottom: 50, left: 40 },
+                width = 1210 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            var retweets_summary_div = d3.select("#retweets_summary");
+            {% for item in users_tweets %}
+                var row_retweets_summary = retweets_summary_div.insert("div", "#retweets_summary")
+                    .attr('class', 'row {{ item.screen_name }}');
+                var col_retweets_summary = row_retweets_summary.append("div")
+                    .attr('class', 'col-sm-12');
+
+
+                var x_retweets_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_retweets_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_retweets_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Tweets:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_retweets_summary = col_retweets_summary.append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_retweets_summary);
+
+                var g_retweets_summary = svg_retweets_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_retweets_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("{{ item.user_name }} Retweets Summary");
+
+                var retweets_summary = {{ item.retweets_summary | safe }}
+
+                x_retweets_summary.domain(retweets_summary.map((d) => { return d.name; }));
+                y_retweets_summary.domain([0, d3.max(retweets_summary, (d) => { return d.count; })]);
+
+                g_retweets_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_retweets_summary))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_retweets_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_retweets_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_retweets_summary.selectAll(".bar")
+                    .data(retweets_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_retweets_summary(d.name); })
+                    .attr("y", (d) => { return y_retweets_summary(d.count); })
+                    .attr("width", x_retweets_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_retweets_summary(d.count); })
+                    .on('mouseover', tip_retweets_summary.show)
+                    .on('mouseout', tip_retweets_summary.hide);
+            {% endfor %}
+        </script>
+    </div>
+    <div class="tab-pane" id="quoted_panel" role="tabpanel">
+        <br />
+        <div id="quoted_summary">
+        </div>
+
+        <script>
+            var margin = { top: 30, right: 10, bottom: 50, left: 40 },
+                width = 1210 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            var quoted_summary_div = d3.select("#quoted_summary");
+            {% for item in users_tweets %}
+                var row_quoted_summary = quoted_summary_div.insert("div", "#quoted_summary")
+                    .attr('class', 'row {{ item.screen_name }}');
+                var col_quoted_summary = row_quoted_summary.append("div")
+                    .attr('class', 'col-sm-12');
+
+
+                var x_quoted_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_quoted_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_quoted_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Tweets:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_quoted_summary = col_quoted_summary.append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_quoted_summary);
+
+                var g_quoted_summary = svg_quoted_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_quoted_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("{{ item.user_name }} Quoted Summary");
+
+                var quoted_summary = {{ item.quoted_summary | safe }}
+
+                x_quoted_summary.domain(quoted_summary.map((d) => { return d.name; }));
+                y_quoted_summary.domain([0, d3.max(quoted_summary, (d) => { return d.count; })]);
+
+                g_quoted_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_quoted_summary))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_quoted_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_quoted_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_quoted_summary.selectAll(".bar")
+                    .data(quoted_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_quoted_summary(d.name); })
+                    .attr("y", (d) => { return y_quoted_summary(d.count); })
+                    .attr("width", x_quoted_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_quoted_summary(d.count); })
+                    .on('mouseover', tip_quoted_summary.show)
+                    .on('mouseout', tip_quoted_summary.hide);
+            {% endfor %}
+        </script>
+    </div>
+    <div class="tab-pane" id="replies_panel" role="tabpanel">
+        <br />
+        <div id="replies_summary">
+        </div>
+
+        <script>
+            var margin = { top: 30, right: 10, bottom: 50, left: 40 },
+                width = 1210 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            var replies_summary_div = d3.select("#replies_summary");
+            {% for item in users_tweets %}
+                var row_replies_summary = replies_summary_div.insert("div", "#replies_summary")
+                    .attr('class', 'row {{ item.screen_name }}');
+                var col_replies_summary = row_replies_summary.append("div")
+                    .attr('class', 'col-sm-12');
+
+
+                var x_replies_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_replies_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_replies_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Tweets:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_replies_summary = col_replies_summary.append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_replies_summary);
+
+                var g_replies_summary = svg_replies_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_replies_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("{{ item.user_name }} Replies Summary");
+
+                var replies_summary = {{ item.replies_summary | safe }}
+
+                x_replies_summary.domain(replies_summary.map((d) => { return d.name; }));
+                y_replies_summary.domain([0, d3.max(replies_summary, (d) => { return d.count; })]);
+
+                g_replies_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_replies_summary))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_replies_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_replies_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_replies_summary.selectAll(".bar")
+                    .data(replies_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_replies_summary(d.name); })
+                    .attr("y", (d) => { return y_replies_summary(d.count); })
+                    .attr("width", x_replies_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_replies_summary(d.count); })
+                    .on('mouseover', tip_replies_summary.show)
+                    .on('mouseout', tip_replies_summary.hide);
+            {% endfor %}
+        </script>
+    </div>
+    <div class="tab-pane" id="mentions_panel" role="tabpanel">
+        <br />
+        <div id="mentions_summary">
+        </div>
+
+        <script>
+            var margin = { top: 30, right: 10, bottom: 50, left: 40 },
+                width = 1210 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            var mentions_summary_div = d3.select("#mentions_summary");
+            {% for item in users_tweets %}
+                var row_mentions_summary = mentions_summary_div.insert("div", "#mentions_summary")
+                    .attr('class', 'row {{ item.screen_name }}');
+                var col_mentions_summary = row_mentions_summary.append("div")
+                    .attr('class', 'col-sm-12');
+
+
+                var x_mentions_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_mentions_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_mentions_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Tweets:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_mentions_summary = col_mentions_summary.append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_mentions_summary);
+
+                var g_mentions_summary = svg_mentions_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_mentions_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("{{ item.user_name }} Mentions Summary");
+
+                var mentions_summary = {{ item.mentions_summary | safe }}
+
+                x_mentions_summary.domain(mentions_summary.map((d) => { return d.name; }));
+                y_mentions_summary.domain([0, d3.max(mentions_summary, (d) => { return d.count; })]);
+
+                g_mentions_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_mentions_summary))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_mentions_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_mentions_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_mentions_summary.selectAll(".bar")
+                    .data(mentions_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_mentions_summary(d.name); })
+                    .attr("y", (d) => { return y_mentions_summary(d.count); })
+                    .attr("width", x_mentions_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_mentions_summary(d.count); })
+                    .on('mouseover', tip_mentions_summary.show)
+                    .on('mouseout', tip_mentions_summary.hide);
+            {% endfor %}
+        </script>
+    </div>
+</div>
+
+{% endblock %}
+

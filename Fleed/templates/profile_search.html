@@ -1,0 +1,96 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<script type="text/javascript">
+    $(document).ready(function () {
+        $('#search_text').keypress(function (e) {
+            if (e.which == 13) {
+                $("#trigger").click();
+                return false;
+            }
+        });
+
+        $("#trigger").click(function () {
+            if ($('#search_text').val() == "")
+                return;
+
+            $.ajax({
+                url: '/twitter_search?search_text=' + $('#search_text').val() + '&is_username=' + $('#is_username').is(':checked'),
+                type: "GET",
+                success: function (data, status, xhr) {
+                    $("#results").empty();
+                    var html = '';
+                    html += '<div class="row justify-content-md-center">';
+                    html += '<div class="col-sm-8">';
+                    for (i = 0; i < data.results.length; i++) {
+                        html += '<div class="row" style="border: 1px solid rgba(0, 0, 0, 0.125); border-radius: 6px; height: 150px;">';
+                        html += '<div class="col-sm-5" style="width: 300px; max-width: 300px; padding: 0px">';
+                        if (data.results[i].profile_banner_url != undefined && data.results[i].profile_banner_url.length > 0)
+                            html += '<img style="width: 100%; height: 100px" src="' + data.results[i].profile_banner_url + '/1500x500" />';
+                        else
+                            html += '<div style="width: 100%; height: 100px; background-color: #' + data.results[i].profile_link_color + '"></div>';
+                        html += '<img style="position: relative; top: -30px; left: 20px; width: 76px; height: 76px; background-color: white; border-radius: 50%; padding: 3px;" src="' + data.results[i].profile_image_url.replace('_normal', '_400x400') + '" />';
+                        html += '</div>';
+
+                        html += '<div class="col-sm-6" style="padding-top: 10px">';
+                        html += '<a target="_blank" href="https://www.twitter.com/' + data.results[i].screen_name + '" >' + data.results[i].name + '</a>';
+                        if (data.results[i].verified)
+                            html += ' <img style="width: 15px;" src="../static/images/verified.png" />';
+                        if (data.results[i].protected)
+                            html += ' <img style="width: 15px;" src="../static/images/protected.png" />';
+                        html += '<br />';
+                        html += data.results[i].description;
+                        html += '<br />';
+                        html += '<table style="position:absolute; bottom: 30px; font-size: 12px;"><thead><tr>';
+                        html += '<th style="text-align: center;"><i title="tweets" class="fab fa-twitter"></i></th>';
+                        html += '<th style="text-align: center;"><i title="following" class="fas fa-arrow-up"></i></th>';
+                        html += '<th style="text-align: center;"><i title="followers" class="fas fa-arrow-down"></i></th>';
+                        html += '<th style="text-align: center;"><i title="likes" class="far fa-heart"></i></th>';
+                        html += '</tr></thead><tbody><tr>';
+                        html += '<td style="text-align: center; width:50px; padding-right: 7px;">' + data.results[i].statuses_count.toLocaleString() + '</td>';
+                        html += '<td style="text-align: center; width:50px; padding-right: 7px;">' + data.results[i].friends_count.toLocaleString() + '</td>';
+                        html += '<td style="text-align: center; width:50px; padding-right: 7px;">' + data.results[i].followers_count.toLocaleString() + '</td>';
+                        html += '<td style="text-align: center; width:50px;">' + data.results[i].favourites_count.toLocaleString() + '</td>';
+                        html += '</tr></tbody></table>';
+                        html += '</div>';
+
+                        html += '<div class="col-sm-1" style="padding-top: 50px">';
+                        html += '<a title="Analyze" href="/profile_viewer?screen_name=' + data.results[i].screen_name + '" class="btn btn-primary"><i class="fas fa-chart-bar fa-lg"></i></a>';
+                        html += '</div>';
+
+                        html += '</div>';
+                        html += '<br />';
+                    }
+                    html += '</div>';
+                    html += '</div>';
+                    $('#results').append(html);
+                },
+                error: function (xhr, status, error) {
+                    console.log(Date() + " Twitter Search Error: " + error);
+                    alert(error);
+                }
+            });
+        });
+    });
+</script>
+
+<h1>Profile search</h1>
+
+<div class="row justify-content-md-center">
+    <div class="col-sm-5">
+        <div class="input-group">
+            <input id="search_text" type="text" class="form-control" placeholder="Twitter Search">
+            <span class="input-group-btn">
+                <button id="trigger" class="btn btn-secondary" type="button">Go!</button>
+            </span>
+        </div>
+        <input type="checkbox" id="is_username" /> Exact twitter user name
+    </div>
+</div>
+
+<br /><br />
+<div id="results" style="width: 100%"></div>
+
+{% endblock %}
+

@@ -1,0 +1,1431 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<style>
+    .bar {
+        fill: steelblue;
+    }
+
+    .bar:hover {
+        fill: brown;
+    }
+
+    .axis--x path {
+        display: none;
+    }
+
+    .d3-tip {
+        line-height: 1;
+        font-weight: bold;
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.8);
+        color: #fff;
+        border-radius: 2px;
+    }
+
+    /* Creates a small triangle extender for the tooltip */
+    .d3-tip:after {
+        box-sizing: border-box;
+        display: inline;
+        font-size: 10px;
+        width: 100%;
+        line-height: 1;
+        color: rgba(0, 0, 0, 0.8);
+        content: "\25BC";
+        position: absolute;
+        text-align: center;
+    }
+
+    /* Style northward tooltips differently */
+    .d3-tip.n:after {
+        margin: -1px 0 0 0;
+        top: 100%;
+        left: 0;
+    }
+
+    .select2-search__field {
+        width: 200px !important;
+    }
+</style>
+
+<script type="text/javascript">
+    {% if not account.protected %}
+        $(document).ready(function () {
+            var from_date, to_date;
+
+            from_date = moment('{{ tweets_summary.first_tweet_datetime }}', 'YYYY-MM-DD hh:mm:ss A');
+            to_date = moment('{{ tweets_summary.last_tweet_datetime }}', 'YYYY-MM-DD hh:mm:ss A');
+
+            {% if search_params.from_date != '' %}
+                from_date = moment('{{ search_params.from_date }}', 'DD/MM/YYYY hh:mm:ss A');
+            {% endif %}
+
+            {% if search_params.from_date != '' %}
+                to_date = moment('{{ search_params.to_date }}', 'DD/MM/YYYY hh:mm:ss A');
+            {% endif %}
+
+            $('#from_date').datetimepicker({
+                format: 'DD/MM/YYYY hh:mm:ss A',
+                defaultDate: from_date,
+                icons: {
+                    time: "fas fa-clock"
+                }
+            });
+
+            $('#to_date').datetimepicker({
+                format: 'DD/MM/YYYY hh:mm:ss A',
+                defaultDate: to_date,
+                icons: {
+                    time: "fas fa-clock"
+                }
+            });
+
+            var classifications = {{ classifications | safe }}
+            var custom_list = {{ custom_list | safe }}
+
+            $('#classification_types').select2({
+                tags: true,
+                placeholder: "Select a classification(s)",
+                data: classifications,
+                tokenSeparators: [',', ';'],
+                createTag: (item) => {
+                    if (item.term == "") return null;
+
+                    return {
+                        id: guid(),
+                        text: item.term,
+                        isNew: true
+                    };
+                }
+            });
+
+            $('#custom_list').select2({
+                tags: true,
+                placeholder: "Select a list(s)",
+                data: custom_list,
+                tokenSeparators: [',', ';'],
+                createTag: (item) => {
+                    if (item.term == "") return null;
+
+                    return {
+                        id: guid(),
+                        text: item.term,
+                        isNew: true
+                    };
+                }
+            });
+
+            $("#save_classifications").click(() => {
+                var data = {
+                    'classification_types': $("#classification_types").select2('data').map((o) => {
+                        return { id: o.id, text: o.text };
+                    }),
+                    'custom_list': $("#custom_list").select2('data').map((o) => {
+                        return { id: o.id, text: o.text };
+                    })
+                };
+
+                $.ajax({
+                    type: "POST",
+                    url: '/add_profile_classifications?screen_name={{ account.screen_name }}',
+                    contentType: 'application/json;charset=UTF-8',
+                    data: JSON.stringify(data),
+                    success: (data, status, xhr) => {
+                        if (data.results.classification_types != null && data.results.classification_types != undefined) {
+                            $("#tbl_classification > tbody").empty();
+                            var html = '';
+                            for (i = 0; i < data.results.classification_types.length; i++) {
+                                html += '<tr id="tr_cls-' + data.results.classification_types[i].id + '">';
+                                html += '<td>' + (i + 1) + '</td>';
+                                html += '<td>' + data.results.classification_types[i].text + '</td>';
+                                html += '<td><a id="cls-' + data.results.classification_types[i].id + '" class="btn_delete_classification" href="#"><i class="fas fa-times" style="color: red;"></i></a></td>';
+                                html += '</tr>';
+                            }
+                            $('#tbl_classification > tbody').append(html);
+                            $(".btn_delete_classification").click((e) => {
+                                delete_classification(e);
+                            });
+
+                            $('#classification_types').val('').trigger('change');
+                        }
+
+                        if (data.results.custom_list != null && data.results.custom_list != undefined) {
+                            $("#tbl_custom_list > tbody").empty();
+                            var html = '';
+                            for (i = 0; i < data.results.custom_list.length; i++) {
+                                html += '<tr id="tr_lst-' + data.results.custom_list[i].id + '">';
+                                html += '<td>' + (i + 1) + '</td>';
+                                html += '<td>' + data.results.custom_list[i].text + '</td>';
+                                html += '<td><a id="lst-' + data.results.custom_list[i].id + '" class="btn_delete_custom_list" href="#"><i class="fas fa-times" style="color: red;"></i></a></td>';
+                                html += '</tr>';
+                            }
+                            $('#tbl_custom_list > tbody').append(html);
+                            $(".btn_delete_custom_list").click((e) => {
+                                delete_custom_list(e);
+                            });
+
+                            $('#custom_list').val('').trigger('change');
+                        }
+                    },
+                    error: (xhr, status, error) => {
+                        console.log(Date() + " Add profile classifications Error: " + error);
+                        alert(error);
+                    }
+                });
+            });
+
+            $(".btn_delete_classification").click((e) => {
+                delete_classification(e);
+            });
+
+            $(".btn_delete_custom_list").click((e) => {
+                delete_custom_list(e);
+            });
+
+            delete_classification = (e) => {
+                e.preventDefault();
+
+                var itemId = $(e.currentTarget).attr('id').split('-')[1];
+
+                if (!confirm("Are you sure ?"))
+                    return;
+
+                $.ajax({
+                    type: "GET",
+                    url: '/delete_profile_classification?screen_name={{ account.screen_name }}&id=' + itemId,
+                    success: (data, status, xhr) => {
+                        Notification.requestPermission().then((result) => {
+                            var n = new Notification(data.message);
+                            setTimeout(n.close.bind(n), 5000);
+                        });
+                        $("#tr_cls-" + itemId).fadeOut(500, () => { $(this).remove(); });
+                    },
+                    error: (xhr, status, error) => {
+                        console.log(Date() + " Delete profile classification Error: " + error);
+                        alert(error);
+                    }
+                });
+            }
+
+            delete_custom_list = (e) => {
+                e.preventDefault();
+
+                var itemId = $(e.currentTarget).attr('id').split('-')[1];
+
+                if (!confirm("Are you sure ?"))
+                    return;
+
+                $.ajax({
+                    type: "GET",
+                    url: '/delete_profile_custom_list?screen_name={{ account.screen_name }}&id=' + itemId,
+                    success: (data, status, xhr) => {
+                        Notification.requestPermission().then((result) => {
+                            var n = new Notification(data.message);
+                            setTimeout(n.close.bind(n), 5000);
+                        });
+                        $("#tr_lst-" + itemId).fadeOut(500, () => { $(this).remove(); });
+                    },
+                    error: (xhr, status, error) => {
+                        console.log(Date() + " Delete profile custom list Error: " + error);
+                        alert(error);
+                    }
+                });
+            }
+        });
+    {% endif %}
+</script>
+
+<div class="row" style="height: 480px;">
+    <div class="col-sm-12">
+        {% if account.profile_banner_url != null %}
+        <img style="width: 100%; max-height: 412px; background-color: #{{ account.profile_link_color }}" src="{{ account.profile_banner_url + "/1500x500" }}" />
+        {% else %}
+        <div style="width: 100%; height:412px; background-color: #{{ account.profile_link_color }}"></div>
+        {% endif %}
+        <img style="position: relative; top: -130px; left: 50px; width: 210px; height: 210px; background-color: white; border-radius: 50%; padding: 5px;" src="{{ account.profile_image_url | replace("_normal", "_400x400") }}" />
+        <h5 style="position: relative; top: -120px; left: 80px;"><a target="_blank" href="https://www.twitter.com/{{ account.screen_name }}"><b>{{ account.name }}</b></a> {% if account.verified %} <img style="width: 15px;" src="{{ url_for('static', filename='images/verified.png') }}" /> {% endif %} {% if account.protected %} <img style="width: 15px;" src="{{ url_for('static', filename='images/protected.png') }}" /> {% endif %}</h5>
+        <span style="position: relative; top: -120px; left: 100px;">@{{ account.screen_name }}</span>
+    </div>
+</div>
+<div class="row justify-content-md-center" style="padding-left: 100px;">
+    <div class="col-sm-1">
+        <span>Tweets</span>
+    </div>
+    <div class="col-sm-1">
+        <span>Following</span>
+    </div>
+    <div class="col-sm-1">
+        <span>Followers</span>
+    </div>
+    <div class="col-sm-1">
+        <span>Likes</span>
+    </div>
+    <div class="col-sm-2" style="max-width: 14%;">
+        <span>Lists Member of</span>
+    </div>
+    <div class="col-sm-2" style="max-width: 14%;">
+        <span>Lists Subscribed to</span>
+    </div>
+</div>
+<div class="row justify-content-md-center" style="padding-left: 100px;">
+    <div class="col-sm-1">
+        <span><b>{{ "{:,.0f}".format(account.statuses_count) }}</b></span>
+    </div>
+    <div class="col-sm-1">
+        <span><b>{{ "{:,.0f}".format(account.friends_count) }}</b></span>
+    </div>
+    <div class="col-sm-1">
+        <span><b>{{ "{:,.0f}".format(account.followers_count) }}</b></span>
+    </div>
+    <div class="col-sm-1">
+        <span><b>{{ "{:,.0f}".format(account.favourites_count) }}</b></span>
+    </div>
+    <div class="col-sm-2" style="max-width: 14%;">
+        <span><b>{{ "{:,.0f}".format(account.listed_count) }}</b></span>
+    </div>
+    <div class="col-sm-2" style="max-width: 14%;">
+        <span><b>{{ "{:,.0f}".format(user_sub_lists | length) }}</b></span>
+    </div>
+</div>
+<br /><br />
+<div class="row">
+    <div class="col-sm-3" style="padding-left: 15px; padding-right: 15px;">
+        <span>{{ account.description }}</span>
+        <br /><br />
+
+        {% if account.location != None and account.location != "" %}
+        <span>
+            <i class="fas fa-map-marker"></i>
+            {{ account.location }}
+        </span>
+        <br />
+        {% endif %}
+        {% if account_time_zone != None and account_time_zone != "" %}
+        <span>
+            <i class="fas fa-globe"></i>
+            {{ account_time_zone }}
+        </span>
+        <br />
+        {% endif %}
+        {% if account.url != None and account.url != "" %}
+        <i class="fas fa-link"></i>
+        <a target="_blank" href="{{ account.entities.url.urls[0].expanded_url }}">{{ account.entities.url.urls[0].display_url }}</a>
+        <br />
+        {% endif %}
+        <span>
+            <i class="fas fa-calendar-alt"></i>
+            {{ account.created_at | format_datetime }}
+        </span>
+        <br /><br />
+        {% if not account.protected %}
+        <span>
+            Total downloaded tweets: {{ tweets_summary.total_tweets }}
+        </span>
+        <br />
+        <span>
+            Total retweets:
+            {{ tweets_summary.total_retweets }}
+        </span>
+        <br />
+        <span>
+            Total quoted tweets:
+            {{ tweets_summary.total_quoted_tweets }}
+        </span>
+        <br />
+        <span>
+            Total replies tweets:
+            {{ tweets_summary.total_replies_tweets }}
+        </span>
+        <br />
+        <span>
+            Last tweet date:
+            <i class="fas fa-calendar-alt"></i>
+            {{ tweets_summary.last_tweet_datetime | format_datetime }}
+        </span>
+        <br />
+        <span>
+            First tweet date:
+            <i class="fas fa-calendar-alt"></i>
+            {{ tweets_summary.first_tweet_datetime | format_datetime }}
+        </span>
+        <br /><br /><br />
+        <form method="post" class="row">
+            <div class="col-sm-8">
+                <label>Download recent tweets: </label>
+                <select id="tweets_count" name="tweets_count" class="form-control">
+                    <option value="200">[Default]</option>
+                    <option value="500">500</option>
+                    <option value="700">700</option>
+                    <option value="1000">1000</option>
+                    <option value="2000">2000</option>
+                    <option value="3200">3200</option>
+                </select>
+            </div>
+            <div class="col-sm-2" style="padding-top: 29px;">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-download"></i>
+                </button>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+
+    {% if not account.protected %}
+    <div class="col-sm-9">
+        <form method="post">
+            <div class="row">
+                <div class="col-sm-8">
+                    <div class="form-group">
+                        <label>Keywords: </label>
+                        <input type="text" id="keywords" name="keywords" class="form-control" value="{{ search_params.keywords }}" />
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-4">
+                    <div class="form-group">
+                        <label>From date: </label>
+                        <div class="input-group date" id="from_date" data-target-input="nearest">
+                            <input id="from_date" name="from_date" type="text" class="form-control datetimepicker-input" data-target="#from_date" />
+                            <div class="input-group-append" data-target="#from_date" data-toggle="datetimepicker">
+                                <div class="input-group-text"><i class="fas fa-calendar-alt"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <div class="form-group">
+                        <label>To date: </label>
+                        <div class="input-group date" id="to_date" data-target-input="nearest">
+                            <input id="to_date" name="to_date" type="text" class="form-control datetimepicker-input" data-target="#to_date" />
+                            <div class="input-group-append" data-target="#to_date" data-toggle="datetimepicker">
+                                <div class="input-group-text"><i class="fas fa-calendar-alt"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">
+                    <div class="form-group">
+                        <label>Results size: </label>
+                        <select id="results_size" name="results_size" class="form-control">
+                            <option value="10" {% if search_params.results_size == '10' %} selected {% endif %}>10</option>
+                            <option value="20" {% if search_params.results_size == '20' %} selected {% endif %}>20</option>
+                            <option value="50" {% if search_params.results_size == '50' %} selected {% endif %}>50</option>
+                            <option value="100" {% if search_params.results_size == '100' %} selected {% endif %}>100</option>
+                            <option value="200" {% if search_params.results_size == '200' %} selected {% endif %}>200</option>
+                            <option value="500" {% if search_params.results_size == '500' %} selected {% endif %}>500</option>
+                            <option value="700" {% if search_params.results_size == '700' %} selected {% endif %}>700</option>
+                            <option value="1000" {% if search_params.results_size == '1000' %} selected {% endif %}>1000</option>
+                            <option value="2000" {% if search_params.results_size == '2000' %} selected {% endif %}>2000</option>
+                            <option value="3200" {% if search_params.results_size == '3200' %} selected {% endif %}>3200</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-5">
+                    <div class="form-group">
+                        <label>Tweets types: </label>
+                        <select id="tweets_types" name="tweets_types" class="form-control">
+                            <option value="1" {% if search_params.tweets_types == '1' %} selected {% endif %}>Tweets only</option>
+                            <option value="2" {% if search_params.tweets_types == '2' %} selected {% endif %}>Include retweets and quoted tweets</option>
+                            <option value="3" {% if search_params.tweets_types == '3' %} selected {% endif %}>Include retweets</option>
+                            <option value="4" {% if search_params.tweets_types == '4' %} selected {% endif %}>Include quoted tweets</option>
+                            <option value="5" {% if search_params.tweets_types == '5' %} selected {% endif %}>Retweets only</option>
+                            <option value="6" {% if search_params.tweets_types == '6' %} selected {% endif %}>Quoted tweets only</option>
+                            <option value="7" {% if search_params.tweets_types == '7' %} selected {% endif %}>Replied tweets only</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-5">
+                    <div class="form-group">
+                        <label style="margin-right: 10px;">Sort by</label>
+                        <label style="margin-right: 10px;" class="radio-inline"><input type="radio" name="sort_by" value="1" {% if search_params.sort_by == '1' %} checked {% endif %} /> Featured</label>
+                        <label style="margin-right: 10px;" class="radio-inline"><input type="radio" name="sort_by" value="2" {% if search_params.sort_by == '2' %} checked {% endif %} /> Date</label>
+                        <label class="radio-inline"><input type="radio" name="sort_by" value="3" {% if search_params.sort_by == '3' %} checked {% endif %} /> Tweet Length</label>
+                        <label class="form-check-label">
+                            <input id="sort_desc" name="sort_desc" type="checkbox" class="form-check-input" {% if search_params.sort_desc %} checked {% endif %}>
+                            Sort Descending
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-3">
+                    <div class="form-group">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-search"></i> Search
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+</div>
+
+{% if not account.protected %}
+    <ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+            <a class="nav-link active" data-toggle="tab" href="#tweets_panel" role="tab">Tweets Timeline</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" href="#analysis_panel" role="tab">Tweets Analysis</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" href="#interactions_panel" role="tab">Tweets Interactions</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" href="#classification_panel" role="tab">Classifications / Lists</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" href="#distribution_panel" role="tab">Tweets Distribution</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" href="#summary_panel" role="tab">Summary</a>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        <div class="tab-pane active" id="tweets_panel" role="tabpanel">
+            <br />
+            {% for tweet in filtered_tweets %}
+            <div class="row justify-content-md-center" style="padding-bottom: 10px;">
+                <div class="col-sm-7" style="border: 1px solid rgba(0, 0, 0, 0.5); border-radius: 4px;">
+                    {% if tweet.in_reply_to_screen_name != None %}
+                    <span style="color: navy;">
+                        <i title="Replied tweet" class="fas fa-reply fa-lg"></i>
+                        <a target="_blank" href="https://twitter.com/{{ tweet.in_reply_to_screen_name }}">{{ tweet.in_reply_to_screen_name }}</a>
+                    </span>
+                    <br />
+                    {% endif %}
+
+                    {% if 'retweeted_status' not in tweet %}
+                    <p style="white-space: pre-wrap; word-wrap: break-word; {% if tweet.lang == "ar" %} direction: rtl; text-align: right; {% endif %}">{{ tweet.full_text }}</p>
+                    {% endif %}
+
+                    {% if 'retweeted_status' in tweet %}
+                    <span style="color: navy;">
+                        <i title="Retweet" class="fas fa-retweet fa-lg"></i>
+                        <a target="_blank" href="https://twitter.com/{{ tweet.retweeted_status.user.screen_name }}">{{ tweet.retweeted_status.user.name }}</a>
+                    </span>
+                    <p style="white-space: pre-wrap; word-wrap: break-word; {% if tweet.retweeted_status.lang == "ar" %} direction: rtl; text-align: right; {% endif %}">{{ tweet.retweeted_status.full_text }}</p>
+                    {% if 'quoted_status' in tweet.retweeted_status %}
+                    <div class="col-sm-12" style="border: 1px solid rgba(0, 0, 0, 0.125); border-radius: 4px; margin-top:10px; {% if tweet.retweeted_status.quoted_status.lang == "ar" %} direction: rtl; {% endif %}">
+                        <span style="color: navy;">
+                            <i title="Quoted tweet" class="fas fa-quote-left fa-lg"></i>
+                            <a target="_blank" href="https://twitter.com/{{ tweet.retweeted_status.quoted_status.user.screen_name }}">{{ tweet.retweeted_status.quoted_status.user.name }}</a>
+                            <i title="Quoted tweet" class="fas fa-quote-right fa-lg"></i>
+                        </span>
+                        <p style="white-space: pre-wrap; word-wrap: break-word; {% if tweet.retweeted_status.quoted_status.lang == "ar" %} direction: rtl; text-align: right; {% endif %}">{{ tweet.retweeted_status.quoted_status.full_text }}</p>
+                    </div>
+                    {% endif %}
+                    {% endif %}
+
+                    {% if 'quoted_status' in tweet %}
+                    <div class="col-sm-12" style="border: 1px solid rgba(0, 0, 0, 0.125); border-radius: 4px; margin-top:10px; {% if tweet.quoted_status.lang == "ar" %} direction: rtl; {% endif %}">
+                        <span style="color: navy;">
+                            <i title="Quoted tweet" class="fas fa-quote-left fa-lg"></i>
+                            <a target="_blank" href="https://twitter.com/{{ tweet.quoted_status.user.screen_name }}">{{ tweet.quoted_status.user.name }}</a>
+                            <i title="Quoted tweet" class="fas fa-quote-right fa-lg"></i>
+                        </span>
+                        <p style="white-space: pre-wrap; word-wrap: break-word; {% if tweet.quoted_status.lang == "ar" %} direction: rtl; text-align: right; {% endif %}">{{ tweet.quoted_status.full_text }}</p>
+                    </div>
+                    {% endif %}
+
+                    <hr style="margin-bottom: 2rem;" />
+                    <span style="position:absolute; bottom: 0;">
+                        <i class="fas fa-calendar-alt fa-lg"></i>
+                        {{ tweet.created_time | format_datetime }}
+                    </span>
+                    <span style="position:absolute; bottom: 0; left: 220px;">
+                        <i class="fas fa-retweet fa-lg" style="padding-right: 3px;"></i>{{ "{:,.0f}".format(tweet.retweet_count) }}
+                    </span>
+                    <span style="position:absolute; bottom: 0; left: 310px;">
+                        <i class="fas fa-heart fa-lg" style="padding-right: 3px;"></i>{{ "{:,.0f}".format(tweet.favorite_count) }}
+                    </span>
+                    <span style="position:absolute; bottom: 0; left: 400px;">
+                        <a title="View Tweet" target="_blank" href="https://twitter.com/{{ tweet.user.screen_name }}/status/{{ tweet.id }}"><i class="fas fa-eye fa-lg" style="padding-right: 3px;"></i></a>
+                    </span>
+                    <span style="position:absolute; bottom: 0; left: 450px;">
+                        <i class="fas fa-language fa-lg" style="padding-right: 3px;"></i>{{ tweet.lang }}, Detected: {{ tweet.detected_lang }}
+                    </span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="tab-pane" id="analysis_panel" role="tabpanel">
+            <script src="{{ url_for('static', filename='scripts/d3.v4.min.js') }}"></script>
+            <script src="{{ url_for('static', filename='scripts/d3-tip.js') }}"></script>
+
+            <br />
+            <div class="row">
+                <div class="col-sm-12">
+                    <svg id="lang_summary"></svg>
+                </div>
+            </div>
+            <br /><br />
+            <div class="row">
+                <div class="col-sm-12">
+                    <svg id="hashtags_summary"></svg>
+                </div>
+            </div>
+            <br /><br />
+            <div class="row">
+                <div class="col-sm-12">
+                    <svg id="emoji_summary"></svg>
+                </div>
+            </div>
+            <br /><br />
+            <div class="row">
+                <div class="col-sm-12">
+                    <svg id="length_summary"></svg>
+                </div>
+            </div>
+
+            <script>
+                var margin = { top: 30, right: 10, bottom: 50, left: 40 },
+                    width = 1210 - margin.left - margin.right,
+                    height = 600 - margin.top - margin.bottom;
+
+                // Lang Summary
+                var x_lang_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_lang_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_lang_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Tweets:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_lang_summary = d3.select("#lang_summary")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_lang_summary);
+
+                var g_lang_summary = svg_lang_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_lang_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("Languages Summary");
+
+                var lang_summary = {{ lang_summary | safe }}
+
+                x_lang_summary.domain(lang_summary.map((d) => { return d.name; }));
+                y_lang_summary.domain([0, d3.max(lang_summary, (d) => { return d.count; })]);
+
+                g_lang_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_lang_summary))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_lang_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_lang_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_lang_summary.selectAll(".bar")
+                    .data(lang_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_lang_summary(d.name); })
+                    .attr("y", (d) => { return y_lang_summary(d.count); })
+                    .attr("width", x_lang_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_lang_summary(d.count); })
+                    .on('mouseover', tip_lang_summary.show)
+                    .on('mouseout', tip_lang_summary.hide);
+
+                // Hashtags Summary
+                var x_hashtags_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_hashtags_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_hashtags_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Count:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_hashtags_summary = d3.select("#hashtags_summary")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_hashtags_summary);
+
+                var g_hashtags_summary = svg_hashtags_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_hashtags_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("Hashtags Summary");
+
+                var hashtags_summary = {{ hashtags_summary | safe }}
+
+                x_hashtags_summary.domain(hashtags_summary.map((d) => { return d.name; }));
+                y_hashtags_summary.domain([0, d3.max(hashtags_summary, (d) => { return d.count; })]);
+
+                g_hashtags_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_hashtags_summary))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_hashtags_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_hashtags_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_hashtags_summary.selectAll(".bar")
+                    .data(hashtags_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_hashtags_summary(d.name); })
+                    .attr("y", (d) => { return y_hashtags_summary(d.count); })
+                    .attr("width", x_hashtags_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_hashtags_summary(d.count); })
+                    .on('mouseover', tip_hashtags_summary.show)
+                    .on('mouseout', tip_hashtags_summary.hide);
+
+                // Emoji Summary
+                var x_emoji_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_emoji_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_emoji_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Count:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_emoji_summary = d3.select("#emoji_summary")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_emoji_summary);
+
+                var g_emoji_summary = svg_emoji_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_emoji_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("Emoji Summary");
+
+                var emoji_summary = {{ emoji_summary | safe }}
+
+                x_emoji_summary.domain(emoji_summary.map((d) => { return d.name; }));
+                y_emoji_summary.domain([0, d3.max(emoji_summary, (d) => { return d.count; })]);
+
+                g_emoji_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_emoji_summary))
+                    .selectAll("text")
+                    .style("font-size", "20px")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_emoji_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_emoji_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_emoji_summary.selectAll(".bar")
+                    .data(emoji_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_emoji_summary(d.name); })
+                    .attr("y", (d) => { return y_emoji_summary(d.count); })
+                    .attr("width", x_emoji_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_emoji_summary(d.count); })
+                    .on('mouseover', tip_emoji_summary.show)
+                    .on('mouseout', tip_emoji_summary.hide);
+
+                // Length Summary
+                var x_length_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_length_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_length_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Count:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_length_summary = d3.select("#length_summary")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_length_summary);
+
+                var g_length_summary = svg_length_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_length_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("Length Summary");
+
+                var length_summary = {{ length_summary | safe }}
+
+                x_length_summary.domain(length_summary.map((d) => { return d.name; }));
+                y_length_summary.domain([0, d3.max(length_summary, (d) => { return d.count; })]);
+
+                g_length_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_length_summary))
+                    .selectAll("text")
+                    .style("font-size", "20px")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_length_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_length_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_length_summary.selectAll(".bar")
+                    .data(length_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_length_summary(d.name); })
+                    .attr("y", (d) => { return y_length_summary(d.count); })
+                    .attr("width", x_length_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_length_summary(d.count); })
+                    .on('mouseover', tip_length_summary.show)
+                    .on('mouseout', tip_length_summary.hide);
+            </script>
+        </div>
+        <div class="tab-pane" id="interactions_panel" role="tabpanel">
+            <br />
+            <div class="row">
+                <div class="col-sm-6">
+                    <svg id="retweets_summary"></svg>
+                </div>
+                <div class="col-sm-6">
+                    <svg id="quoted_summary"></svg>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-6">
+                    <svg id="replies_summary"></svg>
+                </div>
+                <div class="col-sm-6">
+                    <svg id="mentions_summary"></svg>
+                </div>
+            </div>
+
+            <script>
+                var margin = { top: 30, right: 10, bottom: 50, left: 35 },
+                    width = 610 - margin.left - margin.right,
+                    height = 600 - margin.top - margin.bottom;
+
+                // Retweets Summary
+                var x_retweets_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_retweets_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_retweets_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Count:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_retweets_summary = d3.select("#retweets_summary")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_retweets_summary);
+
+                var g_retweets_summary = svg_retweets_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_retweets_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("Retweets Summary");
+
+                var retweets_summary = {{ retweets_summary | safe }}
+
+                x_retweets_summary.domain(retweets_summary.map((d) => { return d.name; }));
+                y_retweets_summary.domain([0, d3.max(retweets_summary, (d) => { return d.count; })]);
+
+                g_retweets_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_retweets_summary))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_retweets_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_retweets_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_retweets_summary.selectAll(".bar")
+                    .data(retweets_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_retweets_summary(d.name); })
+                    .attr("y", (d) => { return y_retweets_summary(d.count); })
+                    .attr("width", x_retweets_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_retweets_summary(d.count); })
+                    .on('mouseover', tip_retweets_summary.show)
+                    .on('mouseout', tip_retweets_summary.hide);
+
+                // Quoted Summary
+                var x_quoted_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_quoted_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_quoted_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Count:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_quoted_summary = d3.select("#quoted_summary")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_quoted_summary);
+
+                var g_quoted_summary = svg_quoted_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_quoted_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("Quoted Summary");
+
+                var quoted_summary = {{ quoted_summary | safe }}
+
+                x_quoted_summary.domain(quoted_summary.map((d) => { return d.name; }));
+                y_quoted_summary.domain([0, d3.max(quoted_summary, (d) => { return d.count; })]);
+
+                g_quoted_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_quoted_summary))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_quoted_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_quoted_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_quoted_summary.selectAll(".bar")
+                    .data(quoted_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_quoted_summary(d.name); })
+                    .attr("y", (d) => { return y_quoted_summary(d.count); })
+                    .attr("width", x_quoted_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_quoted_summary(d.count); })
+                    .on('mouseover', tip_quoted_summary.show)
+                    .on('mouseout', tip_quoted_summary.hide);
+
+                // Replies Summary
+                var x_replies_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_replies_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_replies_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Count:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_replies_summary = d3.select("#replies_summary")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_replies_summary);
+
+                var g_replies_summary = svg_replies_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_replies_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("Replies Summary");
+
+                var replies_summary = {{ replies_summary | safe }}
+
+                x_replies_summary.domain(replies_summary.map((d) => { return d.name; }));
+                y_replies_summary.domain([0, d3.max(replies_summary, (d) => { return d.count; })]);
+
+                g_replies_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_replies_summary))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_replies_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_replies_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_replies_summary.selectAll(".bar")
+                    .data(replies_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_replies_summary(d.name); })
+                    .attr("y", (d) => { return y_replies_summary(d.count); })
+                    .attr("width", x_replies_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_replies_summary(d.count); })
+                    .on('mouseover', tip_replies_summary.show)
+                    .on('mouseout', tip_replies_summary.hide);
+
+                // Mentions Summary
+                var x_mentions_summary = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_mentions_summary = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_mentions_summary = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Count:</strong> <span style='color:red'>" + d.count.toLocaleString() + "</span>";
+                    })
+
+                var svg_mentions_summary = d3.select("#mentions_summary")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_mentions_summary);
+
+                var g_mentions_summary = svg_mentions_summary.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_mentions_summary.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("Mentions Summary");
+
+                var mentions_summary = {{ mentions_summary | safe }}
+
+                x_mentions_summary.domain(mentions_summary.map((d) => { return d.name; }));
+                y_mentions_summary.domain([0, d3.max(mentions_summary, (d) => { return d.count; })]);
+
+                g_mentions_summary.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_mentions_summary))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_mentions_summary.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_mentions_summary).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_mentions_summary.selectAll(".bar")
+                    .data(mentions_summary)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_mentions_summary(d.name); })
+                    .attr("y", (d) => { return y_mentions_summary(d.count); })
+                    .attr("width", x_mentions_summary.bandwidth())
+                    .attr("height", (d) => { return height - y_mentions_summary(d.count); })
+                    .on('mouseover', tip_mentions_summary.show)
+                    .on('mouseout', tip_mentions_summary.hide);
+            </script>
+        </div>
+        <div class="tab-pane" id="classification_panel" role="tabpanel">
+            <br />
+            <div class="row">
+                <div class="col-sm-6">
+                    <div class="row">
+                        <div class="col-sm-12">
+                            <div class="form-group">
+                                <label>Profile classification types: </label>
+                                <select id="classification_types" class="select2 form-control" multiple style="width: 100%"></select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-8">
+                            <table id="tbl_classification" class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">#</th>
+                                        <th scope="col">Classification</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in user_classifications %}
+                                    <tr id="tr_cls-{{ item.id }}">
+                                        <td>{{ loop.index }}</td>
+                                        <td>{{ item.text }}</td>
+                                        <td><a id="cls-{{ item.id }}" class="btn_delete_classification" href="#"><i class="fas fa-times" style="color: red;"></i></a></td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6">
+                    <div class="row">
+                        <div class="col-sm-12">
+                            <div class="form-group">
+                                <label>Add profile to custom list: </label>
+                                <select id="custom_list" class="select2 form-control" multiple style="width: 100%"></select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-8">
+                            <table id="tbl_custom_list" class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">#</th>
+                                        <th scope="col">Custom list</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in user_custom_list %}
+                                    <tr id="tr_lst-{{ item.id }}">
+                                        <td>{{ loop.index }}</td>
+                                        <td>{{ item.text }}</td>
+                                        <td><a id="lst-{{ item.id }}" class="btn_delete_custom_list" href="#"><i class="fas fa-times" style="color: red;"></i></a></td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <br /><br />
+            <div class="row">
+                <div class="col-sm-6">
+                    <div class="form-group">
+                        <button id="save_classifications" type="button" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Save
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <br /><br /><br /><br />
+        </div>
+        <div class="tab-pane" id="distribution_panel" role="tabpanel">
+            <br />
+            <div class="row">
+                <div class="col-sm-6">
+                    <svg id="daily_tweets"></svg>
+                </div>
+                <div class="col-sm-6">
+                    <svg id="weekly_tweets"></svg>
+                </div>
+            </div>
+
+            <script>
+                var margin = { top: 30, right: 10, bottom: 30, left: 30 },
+                    width = 610 - margin.left - margin.right,
+                    height = 600 - margin.top - margin.bottom;
+
+                // Daily Tweets
+                var x_daily_tweets = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_daily_tweets = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_daily_tweets = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Tweets:</strong> <span style='color:red'>" + d.statuses_count.toLocaleString() + "</span>";
+                    })
+
+                var svg_daily_tweets = d3.select("#daily_tweets")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_daily_tweets);
+
+                var g_daily_tweets = svg_daily_tweets.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_daily_tweets.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("Daily Tweets");
+
+                var daily_tweets = {{ daily_tweets | safe }}
+
+                x_daily_tweets.domain(daily_tweets.map((d) => { return d.name; }));
+                y_daily_tweets.domain([0, d3.max(daily_tweets, (d) => { return d.statuses_count; })]);
+
+                g_daily_tweets.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_daily_tweets))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_daily_tweets.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_daily_tweets).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Tweets");
+
+                g_daily_tweets.selectAll(".bar")
+                    .data(daily_tweets)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_daily_tweets(d.name); })
+                    .attr("y", (d) => { return y_daily_tweets(d.statuses_count); })
+                    .attr("width", x_daily_tweets.bandwidth())
+                    .attr("height", (d) => { return height - y_daily_tweets(d.statuses_count); })
+                    .on('mouseover', tip_daily_tweets.show)
+                    .on('mouseout', tip_daily_tweets.hide);
+
+                // Weekly Tweets
+                var x_weekly_tweets = d3.scaleBand().rangeRound([0, width]).padding(0.1),
+                    y_weekly_tweets = d3.scaleLinear().rangeRound([height, 0]);
+
+                var tip_weekly_tweets = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-10, 0])
+                    .html((d) => {
+                        return "<strong>Tweets:</strong> <span style='color:red'>" + d.statuses_count.toLocaleString() + "</span>";
+                    })
+
+                var svg_weekly_tweets = d3.select("#weekly_tweets")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .call(tip_weekly_tweets);
+
+                var g_weekly_tweets = svg_weekly_tweets.append("g")
+                    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+                g_weekly_tweets.append("text")
+                    .attr("x", (width / 2))
+                    .attr("y", 0 - (margin.top / 2))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "14px")
+                    .style("text-decoration", "underline")
+                    .text("Weekly Tweets");
+
+                var weekly_tweets = {{ weekly_tweets | safe }}
+
+                x_weekly_tweets.domain(weekly_tweets.map((d) => { return d.name; }));
+                y_weekly_tweets.domain([0, d3.max(weekly_tweets, (d) => { return d.statuses_count; })]);
+
+                g_weekly_tweets.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", "translate(0," + height + ")")
+                    .call(d3.axisBottom(x_weekly_tweets))
+                    .selectAll("text")
+                    .style("font-weight", "bold")
+                    .attr("x", -10)
+                    .attr("transform", "rotate(-20)");
+
+                g_weekly_tweets.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y_weekly_tweets).ticks(10))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Followers");
+
+                g_weekly_tweets.selectAll(".bar")
+                    .data(weekly_tweets)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", (d) => { return x_weekly_tweets(d.name); })
+                    .attr("y", (d) => { return y_weekly_tweets(d.statuses_count); })
+                    .attr("width", x_weekly_tweets.bandwidth())
+                    .attr("height", (d) => { return height - y_weekly_tweets(d.statuses_count); })
+                    .on('mouseover', tip_weekly_tweets.show)
+                    .on('mouseout', tip_weekly_tweets.hide);
+            </script>
+        </div>
+        <div class="tab-pane" id="summary_panel" role="tabpanel">
+            <br />
+            <div class="row">
+                <div class="col-sm-2">
+                    <span>
+                        Found tweets:
+                    </span>
+                </div>
+                <div class="col-sm-2">
+                    <span>
+                        {{ results_summary.total_tweets }}
+                    </span>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">
+                    <span>
+                        Found retweets:
+                    </span>
+                </div>
+                <div class="col-sm-2">
+                    <span>
+                        {{ results_summary.total_retweets }}
+                    </span>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">
+                    <span>
+                        Found quoted tweets:
+                    </span>
+                </div>
+                <div class="col-sm-2">
+                    <span>
+                        {{ results_summary.total_quoted_tweets }}
+                    </span>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">
+                    <span>
+                        Found replies tweets:
+                    </span>
+                </div>
+                <div class="col-sm-2">
+                    <span>
+                        {{ results_summary.total_replies_tweets }}
+                    </span>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">
+                    <span>
+                        Found last tweet date:
+                    </span>
+                </div>
+                <div class="col-sm-4">
+                    <span>
+                        <i class="fas fa-calendar-alt"></i>
+                        {{ results_summary.last_tweet_datetime | format_datetime }}
+                    </span>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">
+                    <span>
+                        Found first tweet date:
+                    </span>
+                </div>
+                <div class="col-sm-4">
+                    <span>
+                        <i class="fas fa-calendar-alt"></i>
+                        {{ results_summary.first_tweet_datetime | format_datetime }}
+                    </span>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">
+                    <span>
+                        Profile Language:
+                    </span>
+                </div>
+                <div class="col-sm-4">
+                    <span>
+                        {{ account.lang }}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+
+{% endblock %}

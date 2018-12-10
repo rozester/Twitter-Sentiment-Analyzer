@@ -1,0 +1,146 @@
+{% extends "admin/layout.html" %}
+
+{% block content %}
+
+<h1>Admin Dashboard</h1>
+
+<style>
+    svg {
+        font: 10px sans-serif;
+    }
+
+    path {
+        fill: steelblue;
+    }
+
+    .axis path,
+    .axis line {
+        fill: none;
+        stroke: #000;
+        shape-rendering: crispEdges;
+    }
+    .d3-tip {
+        line-height: 1;
+        font-weight: bold;
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.8);
+        color: #fff;
+        border-radius: 2px;
+    }
+
+    /* Creates a small triangle extender for the tooltip */
+    .d3-tip:after {
+        box-sizing: border-box;
+        display: inline;
+        font-size: 10px;
+        width: 100%;
+        line-height: 1;
+        color: rgba(0, 0, 0, 0.8);
+        content: "\25BC";
+        position: absolute;
+        text-align: center;
+    }
+
+    /* Style northward tooltips differently */
+    .d3-tip.n:after {
+        margin: -1px 0 0 0;
+        top: 100%;
+        left: 0;
+    }
+</style>
+
+<span>Last update: {{ lastupdate }}</span>
+<br /><br />
+<form action="{{ url_for('admin', _method='POST') }}" method="post">
+    <button id="refresh_summary" type="submit" class="btn btn-primary btn-sm">Refresh</button>
+</form>
+<br /><br /><br />
+<script src="{{ url_for('static', filename='scripts/d3.v4.min.js') }}"></script>
+<script src="{{ url_for('static', filename='scripts/d3-tip.js') }}"></script>
+<svg></svg>
+<script>
+    var data = {{ data | safe }}
+
+    var margin = { top: 20, right: 20, bottom: 70, left: 40 },
+        width = 1210 - margin.left - margin.right,
+        height = 600 - margin.top - margin.bottom;
+
+    var x0 = d3.scaleBand()
+        .rangeRound([0, width])
+        .paddingInner(0.1);
+
+    var x1 = d3.scaleBand()
+        ;
+
+    var y = d3.scaleLinear()
+        .rangeRound([height, 0]);
+
+    var color = d3.scaleOrdinal()
+        .range(["rgba(11, 94, 215, 0.8)", "rgba(245, 143, 8, 0.8)"]);
+
+    var tip = d3.tip()
+        .attr('class', 'd3-tip')
+        .offset([-10, 0])
+        .html(function (d) {
+            return "<strong>Value:</strong> <span style='color:red'>" + d.Value + "</span>";
+        });
+
+    var svg = d3.select("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+    var types = d3.set(data.map(function (line) { return line.Type; })).values();
+    console.log(types);
+    x0.domain(data.map(function (d) { return d.Url; }));
+    x1.domain(types).rangeRound([0, x0.bandwidth()]);
+    y.domain([0, d3.max(data, function (d) { return d.Value; })]);
+
+    svg.call(tip);
+
+    svg.append("g")
+        .attr("class", "x axis")
+        .attr("transform", "translate(0," + height + ")")
+        .call(d3.axisBottom(x0))
+        .selectAll("text")
+        .attr("x", -30)
+        .attr("transform", "rotate(-20)");
+
+    svg.append("g")
+        .attr("class", "y axis")
+        .call(d3.axisLeft(y).ticks(null, "s"));
+
+    svg.selectAll("rect")
+        .data(data)
+        .enter().append("rect")
+        .attr("width", x1.bandwidth())
+        //.attr("width", 20)
+        .attr("x", function (d) { return x0(d.Url) + x1(d.Type); })
+        .attr("y", function (d) { return y(+d.Value); })
+        .attr("height", function (d) { return height - y(+d.Value); })
+        .style("fill", function (d) { return color(d.Type); })
+        .on('mouseover', tip.show)
+        .on('mouseout', tip.hide);
+
+    var legend = svg.selectAll(".legend")
+        .data(types.slice().reverse())
+        .enter().append("g")
+        .attr("class", "legend")
+        .attr("transform", function (d, i) { return "translate(0," + i * 20 + ")"; });
+
+    legend.append("rect")
+        .attr("x", width - 18)
+        .attr("width", 18)
+        .attr("height", 18)
+        .style("fill", color);
+
+    legend.append("text")
+        .attr("x", width - 24)
+        .attr("y", 9)
+        .attr("dy", ".35em")
+        .style("text-anchor", "end")
+        .text(function (d) { return d; });
+</script>
+
+{% endblock %}
