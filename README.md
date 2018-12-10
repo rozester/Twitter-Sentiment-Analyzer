@@ -3,7 +3,7 @@ Twitter Sentiment Analyzer
 
 Steps to start this project:-
 
-1- Create your own MongoDB with this tables:-
+1- Create your own MongoDB with these tables:-
 <img src="MongoDB-Config.png" />
 
 3- Start MongoDB server.
